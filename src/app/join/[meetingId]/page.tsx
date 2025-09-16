@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, use } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,11 +28,13 @@ export default function JoinMeetingPage({ params }: JoinMeetingPageProps) {
   const { joinMeeting, error } = useMeeting();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [hasStoredPassword, setHasStoredPassword] = useState(false);
   const { meetingId } = use(params);
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors }
   } = useForm<JoinMeetingForm>({
     resolver: zodResolver(joinMeetingSchema),
@@ -42,6 +44,15 @@ export default function JoinMeetingPage({ params }: JoinMeetingPageProps) {
     }
   });
 
+  // Auto-fill password from localStorage if available
+  useEffect(() => {
+    const storedPassword = localStorage.getItem(`meeting_${meetingId}_password`);
+    if (storedPassword) {
+      setValue('password', storedPassword);
+      setHasStoredPassword(true);
+    }
+  }, [meetingId, setValue]);
+
   const onSubmit = async (data: JoinMeetingForm) => {
     try {
       setLoading(true);
@@ -50,6 +61,10 @@ export default function JoinMeetingPage({ params }: JoinMeetingPageProps) {
         password: data.password,
         nickname: data.nickname
       });
+      
+      // Store password for future use if join is successful
+      localStorage.setItem(`meeting_${meetingId}_password`, data.password);
+      
       router.push(`/room/${meetingId}`);
     } catch (error) {
       console.error('Failed to join meeting:', error);
@@ -93,6 +108,11 @@ export default function JoinMeetingPage({ params }: JoinMeetingPageProps) {
             <p className="text-gray-600">
               请设置你的昵称并输入会议密码
             </p>
+            {hasStoredPassword && (
+              <p className="text-sm text-green-600 mt-2">
+                ✓ 已自动填入之前使用的密码
+              </p>
+            )}
           </div>
 
           {/* Error Message */}
@@ -138,7 +158,7 @@ export default function JoinMeetingPage({ params }: JoinMeetingPageProps) {
                   placeholder="输入会议密码..."
                   {...register('password')}
                   error={errors.password?.message}
-                  helperText="请向会议主持人获取密码"
+                  helperText={hasStoredPassword ? "已自动填入保存的密码" : "请向会议主持人获取密码"}
                 />
                 <button
                   type="button"

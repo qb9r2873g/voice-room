@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Mic, 
   MicOff, 
@@ -26,18 +26,24 @@ interface MeetingRoomPageProps {
 
 export default function MeetingRoomPage({ params }: MeetingRoomPageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { meetingId } = use(params);
+  const isOwner = searchParams.get('owner') === 'true';
+  
   const { 
     meeting, 
     participants, 
     currentUser, 
     isConnected,
+    joinMeeting,
     leaveMeeting, 
     endMeeting,
     toggleMute 
   } = useMeeting();
 
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [ownerJoinAttempted, setOwnerJoinAttempted] = useState(false);
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   const {
@@ -74,12 +80,69 @@ export default function MeetingRoomPage({ params }: MeetingRoomPageProps) {
 
   const [showParticipants, setShowParticipants] = useState(false);
 
-  // Redirect if not connected
+  // Handle owner auto-join
   useEffect(() => {
-    if (!isConnected && !meeting) {
-      router.push('/');
+    const handleOwnerJoin = async () => {
+      if (isOwner && !ownerJoinAttempted && !isConnected) {
+        setOwnerJoinAttempted(true);
+        
+        try {
+          // Get stored password from localStorage
+          const storedPassword = localStorage.getItem(`meeting_${meetingId}_password`);
+          
+          if (storedPassword) {
+            await joinMeeting({
+              meetingId,
+              password: storedPassword,
+              nickname: '主持人' // Default nickname for owner
+            });
+            setIsLoading(false);
+          } else {
+            // If no stored password, redirect to join page
+            router.push(`/join/${meetingId}`);
+          }
+        } catch (error) {
+          console.error('Owner auto-join failed:', error);
+          router.push(`/join/${meetingId}`);
+        }
+      }
+    };
+
+    handleOwnerJoin();
+  }, [isOwner, ownerJoinAttempted, isConnected, meetingId, joinMeeting, router]);
+
+  // Check if user has joined the meeting properly (for non-owners)
+  useEffect(() => {
+    if (!isOwner) {
+      const checkMeetingAccess = async () => {
+        // Give some time for context to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // If user hasn't joined through proper flow, redirect to join page
+        if (!isConnected && !currentUser && !meeting) {
+          router.push(`/join/${meetingId}`);
+        } else {
+          setIsLoading(false);
+        }
+      };
+
+      checkMeetingAccess();
     }
-  }, [isConnected, meeting, router]);
+  }, [isOwner, meetingId, isConnected, currentUser, meeting, router]);
+
+  // Additional check after some time to ensure user is properly connected
+  useEffect(() => {
+    if (!isLoading && !isOwner) {
+      const timer = setTimeout(() => {
+        if (!isConnected && !meeting && !currentUser) {
+          console.log('User not properly connected, redirecting to join page');
+          router.push(`/join/${meetingId}`);
+        }
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, isOwner, isConnected, meeting, currentUser, meetingId, router]);
 
   const handleLeave = () => {
     disconnectAll();
@@ -110,12 +173,28 @@ export default function MeetingRoomPage({ params }: MeetingRoomPageProps) {
     return nickname.split(' ').map(name => name[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  if (!meeting || !currentUser) {
+  // Show loading state while checking access or joining
+  if (isLoading || (!meeting && !currentUser && isConnected !== false)) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-white text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-          <p>连接中...</p>
+          <p>{isOwner ? '正在自动加入会议...' : '正在进入会议...'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If no meeting data after loading, show error
+  if (!meeting || !currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-center">
+          <h2 className="text-xl font-semibold mb-4">无法加入会议</h2>
+          <p className="text-gray-300 mb-4">请确保您已正确加入会议</p>
+          <Button onClick={() => router.push(`/join/${meetingId}`)}>
+            重新加入会议
+          </Button>
         </div>
       </div>
     );

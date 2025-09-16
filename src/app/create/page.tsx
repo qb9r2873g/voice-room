@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ArrowLeft, Lock, Eye, EyeOff } from 'lucide-react';
@@ -27,6 +27,7 @@ export default function CreateMeetingPage() {
   const {
     register,
     handleSubmit,
+    control,
     watch,
     formState: { errors }
   } = useForm<CreateMeetingForm>({
@@ -47,7 +48,11 @@ export default function CreateMeetingPage() {
         ...data,
         maxParticipants: 6 // 默认设置为6人
       });
-      router.push(`/room/${meetingId}`);
+      // 存储会议密码到 localStorage
+      localStorage.setItem(`meeting_${meetingId}_password`, data.password);
+      
+      // 创建者直接加入会议，无需密码验证
+      router.push(`/room/${meetingId}?owner=true`);
     } catch (error) {
       console.error('Failed to create meeting:', error);
     } finally {
@@ -121,55 +126,57 @@ export default function CreateMeetingPage() {
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 会议可见性
               </label>
-              <div className="grid grid-cols-2 gap-4">
-                <label className="relative">
-                  <input
-                    type="radio"
-                    value="true"
-                    {...register('isPublic', { 
-                      setValueAs: (value) => value === 'true' 
-                    })}
-                    className="sr-only"
-                  />
-                  <div className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    isPublic 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-300 hover:bg-gray-50'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <Eye className="w-5 h-5 text-blue-600" />
-                      <div>
-                        <div className="font-medium text-gray-900">公开会议</div>
-                        <div className="text-sm text-gray-600">在首页显示，任何人都可以发现</div>
+              <Controller
+                name="isPublic"
+                control={control}
+                render={({ field }) => (
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="relative cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={field.value === true}
+                        onChange={() => field.onChange(true)}
+                        className="sr-only"
+                      />
+                      <div className={`border rounded-lg p-4 transition-colors ${
+                        field.value === true
+                          ? 'border-blue-500 bg-blue-50' 
+                          : 'border-gray-300 hover:bg-gray-50'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <Eye className="w-5 h-5 text-blue-600" />
+                          <div>
+                            <div className="font-medium text-gray-900">公开会议</div>
+                            <div className="text-sm text-gray-600">在首页显示，任何人都可以发现</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </label>
+                    </label>
 
-                <label className="relative">
-                  <input
-                    type="radio"
-                    value="false"
-                    {...register('isPublic', { 
-                      setValueAs: (value) => value === 'false' 
-                    })}
-                    className="sr-only"
-                  />
-                  <div className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    !isPublic 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-300 hover:bg-gray-50'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <Lock className="w-5 h-5 text-gray-600" />
-                      <div>
-                        <div className="font-medium text-gray-900">私人会议</div>
-                        <div className="text-sm text-gray-600">只能通过会议号加入</div>
+                    <label className="relative cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={field.value === false}
+                        onChange={() => field.onChange(false)}
+                        className="sr-only"
+                      />
+                      <div className={`border rounded-lg p-4 transition-colors ${
+                        field.value === false
+                          ? 'border-blue-500 bg-blue-50' 
+                          : 'border-gray-300 hover:bg-gray-50'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <Lock className="w-5 h-5 text-gray-600" />
+                          <div>
+                            <div className="font-medium text-gray-900">私人会议</div>
+                            <div className="text-sm text-gray-600">只能通过会议号加入</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </label>
                   </div>
-                </label>
-              </div>
+                )}
+              />
             </div>
 
             {/* Meeting Info */}
