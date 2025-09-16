@@ -69,10 +69,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Owner is always host, otherwise first participant is host
     const isHost = verifiedAsOwner || (!currentParticipants || currentParticipants.length === 0);
 
+    // Generate unique participant ID
+    const participantId = `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // Create participant
     const { data: participant, error: participantError } = await supabase
       .from('participants')
       .insert({
+        id: participantId,
         meeting_id: meetingId,
         nickname,
         is_host: isHost,

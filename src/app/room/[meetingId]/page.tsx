@@ -14,9 +14,9 @@ export default function RoomPage() {
   const ownerParam = searchParams.get('owner');
   
   const [nickname, setNickname] = useState('');
-  const [hasJoined, setHasJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const {
@@ -29,7 +29,8 @@ export default function RoomPage() {
     joinAsOwner,
     leaveMeeting,
     endMeeting,
-    toggleMute
+    toggleMute,
+    refreshMeetingData
   } = useMeeting();
 
   const {
@@ -43,12 +44,36 @@ export default function RoomPage() {
     participantId: currentUser?.id || ''
   });
 
-  // Check if user is the owner and auto-join
+  // Check if user is already in the meeting or needs to auto-join as owner
   useEffect(() => {
-    if (ownerParam === 'true' && meetingId && !hasJoined && !isJoining) {
-      handleOwnerAutoJoin();
+    const initializeRoom = async () => {
+      setIsInitializing(true);
+
+      // If user is already in a meeting, we're good
+      if (currentUser && meeting) {
+        setIsInitializing(false);
+        return;
+      }
+
+      // Check if user should auto-join as owner
+      if (ownerParam === 'true') {
+        await handleOwnerAutoJoin();
+      } else {
+        // For regular users coming from join page, they should already be in the meeting
+        // If not, redirect back to join page
+        if (!currentUser) {
+          router.push(`/join/${meetingId}`);
+          return;
+        }
+      }
+
+      setIsInitializing(false);
+    };
+
+    if (meetingId) {
+      initializeRoom();
     }
-  }, [ownerParam, meetingId, hasJoined, isJoining]);
+  }, [meetingId, ownerParam, currentUser, meeting]);
 
   const handleOwnerAutoJoin = async () => {
     try {
@@ -62,15 +87,14 @@ export default function RoomPage() {
         return;
       }
 
-      const nickname = `Host-${Date.now()}`;
+      const ownerNickname = `Host-${Date.now()}`;
       
-      await joinAsOwner(meetingId, nickname, {
+      await joinAsOwner(meetingId, ownerNickname, {
         ownerToken: storedData.ownerToken,
         ownerUserId: storedData.ownerUserId
       });
 
-      setNickname(nickname);
-      setHasJoined(true);
+      setNickname(ownerNickname);
     } catch (error) {
       console.error('Owner auto-join failed:', error);
       setJoinError(error instanceof Error ? error.message : 'Failed to join as owner');
@@ -79,14 +103,17 @@ export default function RoomPage() {
     }
   };
 
-  const handleJoin = async () => {
+  const handleJoinWithNickname = async () => {
     if (!nickname.trim()) {
       setJoinError('Please enter your nickname');
       return;
     }
 
-    const password = prompt('Enter meeting password:');
-    if (!password) return;
+    const storedPassword = localStorage.getItem(`meeting_${meetingId}_password`);
+    if (!storedPassword) {
+      setJoinError('No stored password found. Please go back to join page.');
+      return;
+    }
 
     try {
       setIsJoining(true);
@@ -94,11 +121,9 @@ export default function RoomPage() {
       
       await joinMeeting({
         meetingId,
-        password,
+        password: storedPassword,
         nickname: nickname.trim()
       });
-      
-      setHasJoined(true);
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : 'Failed to join meeting');
     } finally {
@@ -161,64 +186,64 @@ export default function RoomPage() {
     );
   }
 
-  if (!hasJoined) {
+  if (isInitializing || isJoining) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">
+            {isInitializing ? 'Initializing room...' : 
+             ownerParam === 'true' ? 'Joining as host...' : 'Joining meeting...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // If we need nickname but don't have currentUser (fallback case)
+  if (!currentUser && !isJoining) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
           <h1 className="text-2xl font-bold text-gray-800 mb-6">Join Meeting</h1>
           
-          {isJoining ? (
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-              <p className="text-gray-600">
-                {ownerParam === 'true' ? 'Joining as host...' : 'Joining meeting...'}
-              </p>
+          <div className="mb-4">
+            <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-2">
+              Your Nickname
+            </label>
+            <input
+              type="text"
+              id="nickname"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter your nickname"
+              maxLength={20}
+            />
+          </div>
+
+          {joinError && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {joinError}
             </div>
-          ) : (
-            <>
-              {ownerParam !== 'true' && (
-                <div className="mb-4">
-                  <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-2">
-                    Your Nickname
-                  </label>
-                  <input
-                    type="text"
-                    id="nickname"
-                    value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter your nickname"
-                    maxLength={20}
-                  />
-                </div>
-              )}
-
-              {joinError && (
-                <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-                  {joinError}
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                {ownerParam !== 'true' && (
-                  <button
-                    onClick={handleJoin}
-                    disabled={!nickname.trim()}
-                    className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    Join Meeting
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => router.push('/')}
-                  className="flex-1 bg-gray-500 text-white py-2 px-4 rounded hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
           )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleJoinWithNickname}
+              disabled={!nickname.trim()}
+              className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              Join Meeting
+            </button>
+            
+            <button
+              onClick={() => router.push(`/join/${meetingId}`)}
+              className="flex-1 bg-gray-500 text-white py-2 px-4 rounded hover:bg-gray-600"
+            >
+              Back to Join Page
+            </button>
+          </div>
         </div>
       </div>
     );
