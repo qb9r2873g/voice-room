@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Meeting, Participant, MeetingState, CreateMeetingData, JoinMeetingData } from '@/types';
+import { Meeting, Participant, MeetingState, CreateMeetingData, JoinMeetingData, OwnerVerificationData, OwnerVerificationResponse } from '@/types';
 
 interface MeetingContextType extends MeetingState {
   createMeeting: (data: CreateMeetingData) => Promise<string>;
@@ -12,6 +12,8 @@ interface MeetingContextType extends MeetingState {
   getPublicMeetings: () => Promise<Meeting[]>;
   searchMeetings: (query: string) => Promise<Meeting[]>;
   refreshMeetingData: () => Promise<void>;
+  verifyOwner: (meetingId: string, data: OwnerVerificationData) => Promise<OwnerVerificationResponse>;
+  joinAsOwner: (meetingId: string, nickname: string, data: OwnerVerificationData) => Promise<void>;
 }
 
 const MeetingContext = createContext<MeetingContextType | undefined>(undefined);
@@ -98,6 +100,77 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       return meeting.id;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create meeting';
+      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      throw error;
+    }
+  };
+
+  const verifyOwner = async (meetingId: string, data: OwnerVerificationData): Promise<OwnerVerificationResponse> => {
+    try {
+      const response = await fetch(`/api/meetings/${meetingId}/verify-owner`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to verify owner');
+      }
+
+      return await response.json();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to verify owner';
+      throw new Error(errorMessage);
+    }
+  };
+
+  const joinAsOwner = async (meetingId: string, nickname: string, data: OwnerVerificationData): Promise<void> => {
+    try {
+      dispatch({ type: 'SET_ERROR', payload: null });
+      
+      // First verify owner
+      const verification = await verifyOwner(meetingId, data);
+      if (!verification.isOwner) {
+        throw new Error('Invalid owner credentials');
+      }
+
+      // Get meeting password from localStorage (stored during creation)
+      const storedPassword = localStorage.getItem(`meeting_password_${meetingId}`);
+      if (!storedPassword) {
+        throw new Error('Meeting password not found');
+      }
+
+      // Join as regular participant but mark as host
+      const response = await fetch(`/api/meetings/${meetingId}/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nickname,
+          password: storedPassword,
+          isOwner: true,
+          ownerToken: data.ownerToken,
+          ownerUserId: data.ownerUserId,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to join as owner');
+      }
+
+      const { participant, meeting } = await response.json();
+      
+      dispatch({ type: 'SET_MEETING', payload: meeting });
+      dispatch({ type: 'SET_CURRENT_USER', payload: participant });
+      dispatch({ type: 'ADD_PARTICIPANT', payload: participant });
+      dispatch({ type: 'SET_CONNECTED', payload: true });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to join as owner';
       dispatch({ type: 'SET_ERROR', payload: errorMessage });
       throw error;
     }
@@ -260,7 +333,9 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     toggleMute,
     getPublicMeetings,
     searchMeetings,
-    refreshMeetingData
+    refreshMeetingData,
+    verifyOwner,
+    joinAsOwner
   };
 
   return (

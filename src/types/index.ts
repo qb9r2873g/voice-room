@@ -24,6 +24,8 @@ export interface CreateMeetingData {
   password: string;
   isPublic: boolean;
   maxParticipants: number;
+  ownerUserId?: string;
+  ownerToken?: string;
 }
 
 export interface JoinMeetingData {
@@ -54,4 +56,15 @@ export interface SocketEvents {
   'participant:mute': (data: { meetingId: string; participantId: string; isMuted: boolean }) => void;
   'meetings:list': () => void;
   'meeting:search': (query: string) => void;
+}
+
+// 新增身份验证相关接口
+export interface OwnerVerificationData {
+  ownerToken: string;
+  ownerUserId: string;
+}
+
+export interface OwnerVerificationResponse {
+  isOwner: boolean;
+  hostId?: string;
 }

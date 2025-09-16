@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { meetingId } = await params;
     const body = await request.json();
-    const { nickname, password } = body;
+    const { nickname, password, isOwner, ownerToken, ownerUserId } = body;
 
     if (!nickname || !password) {
       return NextResponse.json({ error: 'Nickname and password are required' }, { status: 400 });
@@ -35,6 +35,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
     }
 
+    // If claiming to be owner, verify credentials
+    let verifiedAsOwner = false;
+    if (isOwner && ownerToken && ownerUserId) {
+      // Verify owner token and user ID
+      const tokenMatch = await bcrypt.compare(ownerToken, meeting.owner_token);
+      const userIdMatch = ownerUserId === meeting.owner_user_id;
+      
+      if (tokenMatch && userIdMatch) {
+        verifiedAsOwner = true;
+      } else {
+        return NextResponse.json({ error: 'Invalid owner credentials' }, { status: 401 });
+      }
+    }
+
     // Check if meeting is full
     const { data: currentParticipants, error: participantCountError } = await supabase
       .from('participants')
@@ -52,7 +66,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Determine if this participant should be the host
-    const isHost = !currentParticipants || currentParticipants.length === 0;
+    // Owner is always host, otherwise first participant is host
+    const isHost = verifiedAsOwner || (!currentParticipants || currentParticipants.length === 0);
 
     // Create participant
     const { data: participant, error: participantError } = await supabase
@@ -72,7 +87,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Failed to join meeting' }, { status: 500 });
     }
 
-    // Update meeting host_id if this is the first participant
+    // Update meeting host_id if this is the host
     if (isHost) {
       await supabase
         .from('meetings')

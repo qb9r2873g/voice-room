@@ -9,6 +9,7 @@ import { ArrowLeft, Lock, Eye, EyeOff } from 'lucide-react';
 import { useMeeting } from '@/contexts/MeetingContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { UserIdentityManager } from '@/lib/userIdentity';
 
 const createMeetingSchema = z.object({
   name: z.string().min(1, '会议名称不能为空').max(50, '会议名称不能超过50个字符'),
@@ -44,15 +45,26 @@ export default function CreateMeetingPage() {
   const onSubmit = async (data: CreateMeetingForm) => {
     try {
       setLoading(true);
+      
+      // 获取用户身份信息
+      const ownerUserId = UserIdentityManager.getUserId();
+      const ownerToken = UserIdentityManager.generateOwnerToken('temp'); // 临时令牌，会在API中重新生成
+      
       const meetingId = await createMeeting({
         ...data,
-        maxParticipants: 6 // 默认设置为6人
+        maxParticipants: 6, // 默认设置为6人
+        ownerUserId,
+        ownerToken
       });
+      
+      // 生成实际的创建者令牌
+      const realOwnerToken = UserIdentityManager.generateOwnerToken(meetingId);
+      
       // 存储会议密码到 localStorage
       localStorage.setItem(`meeting_${meetingId}_password`, data.password);
       
-      // 创建者直接加入会议，无需密码验证
-      router.push(`/room/${meetingId}?owner=true`);
+      // 创建者直接加入会议，使用安全的身份验证
+      router.push(`/room/${meetingId}?ownerToken=${realOwnerToken}&ownerUserId=${ownerUserId}`);
     } catch (error) {
       console.error('Failed to create meeting:', error);
     } finally {
@@ -186,6 +198,7 @@ export default function CreateMeetingPage() {
                 <li>• 最大参与人数：6人</li>
                 <li>• 支持语音通话</li>
                 <li>• 主持人可以管理参与者</li>
+                <li>• 安全的身份验证保护</li>
               </ul>
             </div>
 
